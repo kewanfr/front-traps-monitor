@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>TRAPS MANAGER WEB V1.0.2</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="header">
+        <h2>TRAPS MANAGER WEB V1.0.2</h2>
+        <img src="icones/icons8-paramètres-50.png" alt="Paramètres" onclick="openSettings()" class="settings-icon"/>
+    </div>
+    <h4>BATTERIE | WIFI | HEURE | TRAPS | MESSAGE | CHARGE | NIVEAU  </h4>
+    <div id="mqttMessages">Chargement profils TRAPS ...</div>
+    <h4></h4>
+    <div id="globalMessageDiv">
+        <input type="text" id="globalMessageText" placeholder="Entrez le message global ici..." class="device-message"></textarea>
+        <button onclick="sendGlobalMessage()" >Envoyer à tous</button>
+
+</div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.2.8/mqtt.min.js"></script>
+   
+    
+    <script>
+        let deviceStates = {};
+        
+
+        function openSettings() {
+            window.location.href = 'settings.html'; // Redirection vers la page des paramètres
+        }
+        var client; // Déclarer client comme variable globale
+        async function connectAndSubscribe() {
+            const brokerUrl = `ws://${localStorage.getItem('mqttServerAddress')}:${localStorage.getItem('mqttServerPort')}`;
+            const devices = JSON.parse(localStorage.getItem('mqttDevices')) || [];
+            client = mqtt.connect(brokerUrl);
+            let firstMessageReceived = false; // Ajout d'un indicateur pour le premier message
+
+            devices.forEach(deviceName => {
+                deviceStates[deviceName] = {
+                    batteryStatus: undefined,
+                    chargingStatus: undefined,
+                    online: false,
+                    wifi: {
+                        ssid: undefined,
+                        bssid: undefined,
+                        ip: undefined,
+                        level: undefined,
+                        rssi: undefined
+                    }
+                };
+
+                // Supposons que vous avez un topic spécifique pour savoir si le dispositif est en ligne
+                client.subscribe(`devices/${deviceName}`);
+                client.subscribe(`battery/${deviceName}`);
+                client.subscribe(`charging/${deviceName}`);
+                client.subscribe(`wifi/${deviceName}`);
+            });
+
+            client.on('message', (topic, message) => {
+                if (!firstMessageReceived) {
+                    document.getElementById('mqttMessages').innerHTML = ''; // Supprime le message d'attente
+                    firstMessageReceived = true; // Mise à jour de l'indicateur
+                }
+                const messageContent = message.toString();
+                const [type, deviceName] = topic.split('/');
+                const now = new Date();
+                const timestamp = now.toTimeString().split(' ')[0]; // Format HH:mm:ss
+
+                console.log(`Message reçu: ${messageContent} pour le topic ${topic}, ${type}`);
+
+                if (type === 'devices') {
+                    deviceStates[deviceName].online = messageContent === 'Connected';
+                }
+
+                if (type === 'battery') {
+                    deviceStates[deviceName].batteryStatus = `${messageContent}%` ; 
+                }
+
+                if (type === 'charging') {
+                    deviceStates[deviceName].chargingStatus = (messageContent.toLowerCase() === 'true') ? 'en charge' : 'n\'est actuellement pas en charge';
+                }
+
+                if (type === 'wifi') {
+                    const wifiInfo = JSON.parse(messageContent);
+                    // Wifi level
+                    // -50 - -60 => 3
+                    // -60 - -70 => 2
+                    // -70 - -90 => 1
+                    // -90 - No wifi => 0
+                    let wifiLevel = wifiInfo.rssi < -90 ? 0 : wifiInfo.rssi < -70 ? 1 : wifiInfo.rssi < -60 ? 2 : 3;
+
+                    deviceStates[deviceName].wifi = {
+                        ssid: wifiInfo.ssid,
+                        bssid: wifiInfo.bssid,
+                        ip: wifiInfo.ip,
+                        level: wifiLevel,
+                        rssi: wifiInfo.rssi
+                    };
+
+                }
+
+                updateMessage(deviceName, timestamp);
+            });
+
+            pingAllDevices();
+
+        }
+
+        function sendGlobalMessage() {
+            const devices = JSON.parse(localStorage.getItem('mqttDevices')) || [];
+            const messageText = document.getElementById("globalMessageText").value;
+
+            if (!messageText.trim()) {
+            console.log("Le message global ne peut pas être vide");
+            return;
+        }
+            devices.forEach(deviceName => {
+                sendCommand(deviceName, 'ping');
+                      // Remplacer 'yourTopic' par le sujet réel utilisé pour les messages globaux
+            const topic = `notifs/${deviceName}`;
+            if(client && client.connected) {
+                client.publish(topic, messageText, (error) => {
+                    if (error) {
+                        console.error(`Erreur lors de l'envoi du message global à ${deviceName}`, error);
+                    } else {
+                        console.log(`Message global envoyé à ${deviceName}`);
+                    }
+                });
+            } else {
+                console.log("Client MQTT n'est pas connecté.");
+            }
+                });
+        
+        }
+
+
+        function sendMessageToDevice(index) {
+            // Vérifie si le client MQTT est déjà initialisé et connecté
+            if (!client || !isClientConnected) {
+                connect(() => sendToDeviceAfterConnect(index)); // Connecte et défini un callback pour l'envoi
+            } else {
+                // Si déjà connecté, envoie le message directement
+                sendToDeviceAfterConnect(index);
+            }
+}
+        function sendToDeviceAfterConnect(index) {
+            const nameInput = document.getElementsByClassName('device-name')[index];
+            const messageInput = document.getElementsByClassName('device-message')[index];
+            const name = nameInput.value.trim();
+            const message = messageInput.value.trim();
+
+            if (!name || !message) {
+                console.log("Le nom du dispositif et le message ne peuvent pas être vides.");
+                return;
+            }
+
+            const topic = `notifs/${name}`;
+            const mqttMessage = new Paho.MQTT.Message(message);
+            mqttMessage.destinationName = topic;
+            client.send(mqttMessage);
+            console.log(`Message envoyé au topic: ${topic} avec le message: ${message}`);
+        }
+        function pingAllDevices() {
+            const devices = JSON.parse(localStorage.getItem('mqttDevices')) || [];
+            devices.forEach(async deviceName => {
+                let ping = await sendCommandAndWaitForResponse(deviceName, 'ping');
+                sendCommand(deviceName, 'batteryStatus');
+                if (ping === 'Timeout') {
+                    console.log(`Le ${deviceName} n'a pas répondu au ping.`);
+                    deviceStates[deviceName].online = false;
+                    deviceStates[deviceName].ping = false;
+                } else {
+                    console.log(`Le ${deviceName} a répondu au ping.`);
+                    deviceStates[deviceName].online = true;
+                    deviceStates[deviceName].ping = ping;
+                }
+
+                updateMessage(deviceName, new Date().toTimeString().split(' ')[0]);
+
+            });
+        }
+
+        async function clickDeviceIcon(deviceName) {
+            const icon = document.getElementById(`icon-${deviceName}`);
+            const originalSrc = icon.src;
+            icon.src = 'icones/loading.gif';
+            const pingRes = await sendCommandAndWaitForResponse(deviceName, 'ping');
+            const batteryRes = await sendCommandAndWaitForResponse(deviceName, 'batteryStatus');
+            deviceStates[deviceName].online = pingRes !== 'Timeout';
+            updateMessage(deviceName, new Date().toTimeString().split(' ')[0]);
+        }
+
+        async function clickDeviceWifiIcon(deviceName) {
+            const icon = document.getElementById(`wifiicon-${deviceName}`);
+            const originalSrc = icon.src;
+            icon.src = 'icones/loading.gif';
+            const wifiRes = await sendCommandAndWaitForResponse(deviceName, 'wifiInfo');
+        }
+
+
+        function updateMessage(deviceName, timestamp) {
+            let { batteryStatus, chargingStatus, online, wifi } = deviceStates[deviceName];
+     
+            const deviceNameStyled = `<span class="device-name">${deviceName}</span>`;
+
+            // Calculate signal strength percentage from RSSI
+            const signalStrengthPercentage = rssiToPercentage(wifi.rssi).toFixed(0);
+        
+
+            // Prepare tooltip info with WiFi details and signal strength
+            let wifiInfo = `IP: ${wifi.ip}, AP: ${wifi.bssid}, SSID: ${wifi.ssid}, Signal : ${signalStrengthPercentage}%`;
+
+            let deviceMessageDiv = document.getElementById(`msg-${deviceName}`);
+            if (!deviceMessageDiv) {
+                deviceMessageDiv = document.createElement('div');
+                deviceMessageDiv.id = `msg-${deviceName}`;
+                document.getElementById('mqttMessages').appendChild(deviceMessageDiv);
+            }
+        
+
+            const batteryLevelIcon = getBatteryLevelIcon(deviceName, batteryStatus, chargingStatus === 'en charge');
+            const batteryPercentage = deviceStates[deviceName].batteryStatus;
+            const batteryLevelDisplay = batteryPercentage ? `<strong>${batteryPercentage}</strong>` : "Unknown";
+
+
+
+            console.log(wifi);
+            let wifiLevel = wifi.level;
+            if (!online) {
+                wifiLevel = 0;
+            }
+            if (wifiLevel === undefined) {
+                wifiLevel = 0;
+                sendCommand(deviceName, 'wifiInfo');
+            }
+            
+            // timestamp : 17:20:56 -> heure: 17h20
+            const heure = timestamp.split(':')[0];
+            const minute = timestamp.split(':')[1];
+            timestamp = `${heure}h${minute}`;
+
+            const wifiLevelIcon = `<img src="icones/signal-${wifiLevel}.png" class="icon" alt="Signal Wifi" id="wifiicon-${deviceName}" onclick="clickDeviceWifiIcon('${deviceName}')">`;
+            const offlineIcon = `<img src="icones/icons8-wi-fi-off-24.png" class="icon" alt="Hors ligne" id="icon-${deviceName}" onclick="clickDeviceIcon('${deviceName}')">`;
+            const inputId = `input-${deviceName}`;
+            const sendButtonId = `send-${deviceName}`;
+            const notificationInput = `<input type="text" id="${inputId}" placeholder="Entrez votre notification ici...">`;
+            const sendButton = `<button id="${sendButtonId}" onclick="sendNotification('${deviceName}')">Envoyer</button>`;
+            const divMessage = `<div class="device-message">${notificationInput} ${sendButton}</div>`;
+            const deviceDiv = document.createElement('div');
+
+            deviceDiv.className = 'device';
+            deviceMessageDiv.className = 'device-element';
+
+            
+            if (online){
+                deviceMessageDiv.innerHTML = `${batteryLevelIcon} ${wifiLevelIcon}`;
+                deviceDiv.innerHTML = `[${timestamp}] <span class="device-name">${deviceName}</span> : ${chargingStatus === 'en charge' ? 'En charge' : 'Pas en charge'} ${batteryLevelDisplay}.`;
+                deviceMessageDiv.title = wifiInfo; // Ajoute l'infobulle      
+            }else {
+                deviceMessageDiv.innerHTML = `${offlineIcon} `;
+                deviceDiv.innerHTML = `[${timestamp}] <span class="device-name-off">${deviceName}</span> : Hors ligne.`;
+            }
+            if (online){
+                deviceDiv.innerHTML += divMessage;
+            }
+            deviceMessageDiv.appendChild(deviceDiv);
+        }
+
+
+                // Définissez la fonction sendNotification
+        function sendNotification(deviceName) {
+            const inputId = `input-${deviceName}`;
+            const notificationText = document.getElementById(inputId).value;
+            if (!notificationText.trim()) {
+                console.log("Le message ne peut pas être vide");
+                return;
+            }
+            const notifTopic = `notifs/${deviceName}`; // Assurez-vous que ceci est votre sujet attendu
+            if (client) {
+                client.publish(notifTopic, notificationText, { qos: 0 }, (err) => {
+                    if (err) {
+                        console.error("Erreur lors de l'envoi de la notification :", err);
+                    } else {
+                        console.log(`Notification envoyée à ${deviceName}: ${notificationText}`);
+                    }
+                });
+            } else {
+                console.log("Client MQTT n'est pas connecté.");
+            }
+}
+
+        function rssiToPercentage(rssi) {
+            const maxRssi = -60;
+            const minRssi = -100;
+            if (rssi > maxRssi) rssi = maxRssi;
+            if (rssi < minRssi) rssi = minRssi;
+            return ((rssi - minRssi) / (maxRssi - minRssi)) * 100;
+}
+        function getBatteryLevelIcon(deviceName, batteryStatus, isCharging) {
+            const level = parseInt(batteryStatus);
+            let iconPath;
+
+            if (isCharging) {
+                if (level == 100) {
+                    iconPath = 'icones/icons8-batterie-en-charge_100.gif';
+                } 
+                else if (level > 80) {
+                    iconPath = 'icones/icons8-batterie-pleine.gif';
+                } 
+                else if (level > 50) {
+                    iconPath = 'icones/icons8-batterie-chargée-à-moitié.gif';
+                } 
+                else {
+                    iconPath = 'icones/icons8-batterie-en-charge-faible.gif';
+                }
+                           }  
+            else {
+                if (isNaN(level)) {
+                    iconPath = 'icones/icons8-batterie-vide-48.png';
+                } else if (level <= 20) {
+                    iconPath = 'icones/icons8-batterie-faible_rouge.png';
+                } else if (level <= 30) {
+                    iconPath = 'icones/icons8-batterie-faible.gif';
+                } else if (level <= 50) {
+                    iconPath = 'icones/icons8-batterie-chargée-à-moitié-48.png';
+                } else if (level <= 80) {
+                    iconPath = 'icones/icons8-batterie-chargée-48.png';
+                } else {
+                    iconPath = 'icones/icons8-batterie-pleine-48.png';
+                }
+            }
+
+            return `<img src="${iconPath}" alt="Battery Icon"  class="icon" id="icon-${deviceName}" onclick="clickDeviceIcon('${deviceName}')">`;	
+        }
+
+        function sendCommand(deviceName, command) {
+            const client = mqtt.connect(`ws://${localStorage.getItem('mqttServerAddress')}:${localStorage.getItem('mqttServerPort')}`);
+            
+            return new Promise((resolve, reject) => {
+                try {
+                    client.publish(`cmd/${deviceName}`, JSON.stringify({ cmd: command }));
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+                // client.publish(`cmd/${deviceName}`, JSON.stringify({ cmd: command }));
+                // resolve();
+            });
+
+
+        }
+
+        const commandsResponsesTopics = {
+            "ping": "ping/",
+            "wifiInfo": "wifi/",
+            "batteryStatus": "charging/",
+        }
+
+
+        function sendCommandAndWaitForResponse(deviceName, command) {
+            const client = mqtt.connect(`ws://${localStorage.getItem('mqttServerAddress')}:${localStorage.getItem('mqttServerPort')}`);
+            const responseTopic = commandsResponsesTopics[command] + deviceName;
+
+
+            return new Promise((resolve, reject) => {
+                client.subscribe(responseTopic, (err) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        client.publish(`cmd/${deviceName}`, JSON.stringify({
+                            cmd: command
+                        }));
+                    }
+                });
+
+                client.on('message', (topic, message) => {
+                    if (topic === responseTopic && !message.toString().includes('received')) {
+                        resolve(message.toString());
+                    }
+                });
+
+                setTimeout(() => {
+                    // reject('Timeout');
+                    resolve('Timeout');
+                }, 1000);
+            });
+        };
+
+        
+
+        window.addEventListener('load', connectAndSubscribe);
+    </script>
+</body>
+
+</html>

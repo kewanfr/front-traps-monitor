@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Paramètres</title>
+</head>
+<body>
+    <h2>Paramètres du Serveur</h2>
+    <form id="settingsForm">
+        <label for="serverAddress">Adresse du serveur:</label>
+        <input type="text" id="serverAddress" name="serverAddress"><br>
+        <label for="serverPort">Port:</label>
+        <input type="number" id="serverPort" name="serverPort"><br>
+        <label for="deviceName">Nom du dispositif:</label>
+        <input type="text" id="deviceName" name="deviceName"><br>
+        <button type="button" onclick="saveSettings()">Enregistrer les paramètres</button>
+    </form>
+
+    <script>
+        function saveSettings() {
+            const serverAddress = document.getElementById('serverAddress').value;
+            const serverPort = document.getElementById('serverPort').value;
+            const deviceName = document.getElementById('deviceName').value;
+            
+            // Enregistrer les paramètres localement (exemple avec localStorage)
+            localStorage.setItem('mqttServerAddress', serverAddress);
+            localStorage.setItem('mqttServerPort', serverPort);
+            localStorage.setItem('mqttDeviceName', deviceName);
+            
+            // Redirection vers la page principale après l'enregistrement
+            window.location.href = 'recev3.html';
+        }
+    </script>
+</body>
+</html>

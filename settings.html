@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Paramètres</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <h2>Paramètres du Serveur</h2>
+    <form id="settingsForm">
+        <label for="serverAddress">Adresse du serveur:</label>
+        <input type="text" id="serverAddress" name="serverAddress"><br>
+        <label for="serverPort">Port:</label>
+        <input type="number" id="serverPort" name="serverPort"><br>
+        <div class="form-group">
+            <div class="form-input">
+                <label for="apkBaseUrl">URL de mise à jour:</label>
+                <input type="text" id="apkBaseUrl" name="apkBaseUrl">
+            </div>
+            <div class="form-input">
+                <label for="lastVersion">Dernière version:</label>
+                <input type="text" id="lastVersion" name="lastVersion">
+            </div>
+
+            <div class="form-input">
+                <!-- Upload File -->
+                <label for="apkFile">Fichier APK:</label>
+                <input type="file" id="apkFile" name="apkFile">
+            </div>
+
+            <div class="form-input">
+                <button type="button" id="uploadApkBtn">Envoyer</button>
+            </div>
+
+        </div>
+        <div id="devices">
+            <!-- Les champs pour chaque dispositif seront ajoutés ici -->
+        </div>
+        <div class="button-group">
+            <button type="button" onclick="addDeviceFields()">Ajouter un dispositif</button>
+            <button type="button" id="saveSettings">Enregistrer les paramètres</button>
+        </div>
+    </form>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.2.8/mqtt.min.js"></script>
+
+    <script>
+        const serverAddressInput = document.getElementById('serverAddress');
+        const serverPortInput = document.getElementById('serverPort');
+        const apkBaseUrlInput = document.getElementById('apkBaseUrl');
+        const lastVersionInput = document.getElementById('lastVersion');
+        const saveSettingsBtn = document.getElementById('saveSettings');
+        const uploadApkBtn = document.getElementById('uploadApkBtn');
+
+        // on update
+        serverAddressInput.addEventListener('input', () => {
+            saveSettings(false)
+        });
+        serverPortInput.addEventListener('input', () => {
+            saveSettings(false)
+        });
+        apkBaseUrlInput.addEventListener('input', () => {
+            saveSettings(false)
+        });
+        lastVersionInput.addEventListener('input', () => {
+            saveSettings(false)
+        });
+
+        saveSettingsBtn.addEventListener('click', () => {
+            saveSettings();
+        });
+
+        uploadApkBtn.addEventListener('click', () => {
+            uploadApk();
+        });
+
+        function uploadApk() {
+            console.log('Uploading APKs');
+            const file_data = document.getElementById('apkFile').files[0];
+
+            if (!file_data) return;
+            // Si il n'a pas de fichier
+            const apkBaseUrl = document.getElementById('apkBaseUrl').value;
+            const version = document.getElementById('lastVersion').value;
+
+            const fileName = `TrapsMonitor-V${version}.apk`;
+            console.log(fileName)
+
+            const form_data = new FormData();
+            form_data.append('file', file_data);
+            // form_data.append('apkBaseUrl', apkBaseUrl);
+            form_data.append('fileName', fileName);
+            form_data.append('overwrite', "true");
+
+            // redirect to php
+            
+
+            fetch('uploadApk.php', {
+                method: 'POST',
+                body: form_data
+            }).then(response => response.text())
+                .then(data => {
+                    console.log(data);
+                    // localStorage.setItem('updateApkUrl', getApkUrl());
+                })
+                .catch(error => console.error(error));
+        }
+
+        function saveSettings(redirect = true) {
+            const serverAddress = document.getElementById('serverAddress').value;
+            const serverPort = document.getElementById('serverPort').value;
+            const apkBaseUrl = document.getElementById('apkBaseUrl').value;
+            const lastVersion = document.getElementById('lastVersion').value;
+            const devices = [];
+            document.querySelectorAll('.deviceName').forEach(input => {
+                if (input.value !== '') devices.push(input.value);
+            });
+
+            localStorage.setItem('mqttServerAddress', serverAddress);
+            localStorage.setItem('mqttServerPort', serverPort);
+            localStorage.setItem('apkBaseUrl', apkBaseUrl);
+            localStorage.setItem('lastVersion', lastVersion);
+            localStorage.setItem('mqttDevices', JSON.stringify(devices));
+            
+            if (redirect) window.location.href = 'recev.html'; // Modifier selon le nom de votre page principale
+        }
+
+        function loadSettings() {
+            serverAddressInput.value = localStorage.getItem('mqttServerAddress') || '192.168.0.21';
+            serverPortInput.value = localStorage.getItem('mqttServerPort') || 1884;
+            apkBaseUrlInput.value = localStorage.getItem('apkBaseUrl') || 'http://localhost/web/apks';
+            lastVersionInput.value = localStorage.getItem('lastVersion') || '1.4.0';
+        }
+
+        function getApkUrl() {
+            return localStorage.getItem('apkBaseUrl') + '/TrapsMonitor-V' + localStorage.getItem('lastVersion') + '.apk';
+        }
+
+        function generateId() {
+            return Math.random().toString(36).substr(2, 9);
+        }
+
+        function addDeviceFields() {
+            const devicesDiv = document.getElementById('devices');
+            if (document.querySelectorAll('.deviceName').length < 10) {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'deviceName';
+                input.name = 'deviceName[]';
+                input.id = generateId();
+                devicesDiv.appendChild(input);
+                devicesDiv.appendChild(document.createElement('br'));
+            }
+        }
+
+        function updateDevice(deviceName, apkURL) {
+
+            const client = mqtt.connect(`ws://${localStorage.getItem('mqttServerAddress')}:${localStorage.getItem('mqttServerPort')}`);
+            
+            return new Promise((resolve, reject) => {
+                try {
+                    client.publish(`cmd/${deviceName}`, JSON.stringify({ cmd: 'updateApp', url: apkURL }));
+                    client.publish(`cmd/${deviceName}`, JSON.stringify({ cmd: 'update', url: apkURL }));
+                    resolve();
+                } catch (error) {
+                    console.error(error);
+                    reject(error);
+                }
+                // client.publish(`cmd/${deviceName}`, JSON.stringify({ cmd: command }));
+                // resolve();
+            });
+
+        }
+
+        function sendCommand(deviceName, command) {
+            const client = mqtt.connect(`ws://${localStorage.getItem('mqttServerAddress')}:${localStorage.getItem('mqttServerPort')}`);
+            
+            return new Promise((resolve, reject) => {
+                try {
+                    client.publish(`cmd/${deviceName}`, JSON.stringify({ cmd: command }));
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+                // client.publish(`cmd/${deviceName}`, JSON.stringify({ cmd: command }));
+                // resolve();
+            });
+        }
+
+        const commandsResponsesTopics = {
+            "ping": "ping/",
+            "wifiInfo": "wifi/",
+            "batteryStatus": "charging/",
+            "getVersion": "version/",
+            "version": "version/",
+            "updateApp": "update/"
+        }
+
+
+        function sendCommandAndWaitForResponse(deviceName, command) {
+            const client = mqtt.connect(`ws://${localStorage.getItem('mqttServerAddress')}:${localStorage.getItem('mqttServerPort')}`);
+            const responseTopic = commandsResponsesTopics[command] + deviceName;
+            console.log(client)
+            console.log(responseTopic)
+            console.log(deviceName, command)
+
+            return new Promise((resolve, reject) => {
+                client.subscribe(responseTopic, (err) => {
+                    if (err) {
+                        console.error(err);
+                        reject(err);
+                    } else {
+                        client.publish(`cmd/${deviceName}`, JSON.stringify({
+                            cmd: command
+                        }));
+                    }
+                });
+
+                client.on('message', (topic, message) => {
+                    if (topic === responseTopic && !message.toString().includes('received')) {
+                        resolve(message.toString());
+                    }
+                });
+
+                setTimeout(() => {
+                    // reject('Timeout');
+                    resolve('Timeout');
+                }, 1000);
+            });
+        };
+
+        async function clickInfoBtn(deviceId){
+        
+            const deviceDiv = document.getElementById(deviceId);
+            const deviceName = deviceDiv.querySelector('.deviceName').value;
+            if (deviceName === '') return;
+            // alert('Nom du dispositif: ' + deviceName);
+            var versionRes = await sendCommandAndWaitForResponse(deviceName, 'getVersion');
+            if (versionRes === 'Timeout') {
+                versionRes = await sendCommandAndWaitForResponse(deviceName, 'version');
+
+            }
+            const version = versionRes === 'Timeout' ? 'ersion Introuvable' : JSON.parse(versionRes).versionName;
+            console.log(versionRes);
+            deviceDiv.querySelector('#info-span').innerHTML = `V${version}`;
+            const updateBtn = deviceDiv.querySelector('button');
+            if (versionRes !== 'Timeout') {
+                updateBtn.style.display = '';
+            }
+
+            updateBtn.onclick = function() {
+                const apkURL = getApkUrl();
+                console.log(apkURL)
+                updateDevice(deviceName, apkURL);
+            };
+
+            console.log(getApkUrl())
+            
+        }
+
+        function loadDevicesFields(){
+            const devices = JSON.parse(localStorage.getItem('mqttDevices')) || [];
+            devices.forEach(deviceName => {
+                const devicesDiv = document.getElementById('devices');
+                const deviceDiv = document.createElement('div');
+                deviceDiv.className = 'device-element';
+                deviceDiv.id = generateId();
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'deviceName';
+                input.name = 'deviceName[]';
+                input.value = deviceName;
+                
+                
+                const infoIcon = document.createElement('img');
+                infoIcon.src = 'icones/info-icon.png';
+                infoIcon.alt = 'info';
+                infoIcon.className = 'icon';
+                infoIcon.onclick = function() {
+                    clickInfoBtn(deviceDiv.id);
+                };
+
+                const infoSpan = document.createElement('span');
+                infoSpan.id = 'info-span';
+                infoSpan.innerHTML = '';
+
+                const updateBtn = document.createElement('button');
+                updateBtn.innerHTML = 'Mettre à jour';
+                updateBtn.type = 'button';
+                updateBtn.style.display = 'none';
+
+                
+                deviceDiv.appendChild(input);
+                deviceDiv.appendChild(infoIcon);
+                deviceDiv.appendChild(infoSpan);
+                deviceDiv.appendChild(updateBtn);
+                devicesDiv.appendChild(deviceDiv);
+                devicesDiv.appendChild(document.createElement('br'));
+            });
+        }
+        // Initialise avec un champ
+        // addDeviceFields();
+
+        loadSettings();
+        loadDevicesFields();
+    </script>
+</body>
+</html>

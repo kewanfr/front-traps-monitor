@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>ENVOI de message aux TRAPS</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.2/mqttws31.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        .device {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Envoyer des messages aux TRAPS</h2>
+    <div>
+        <label for="mqttServerIP">MQTT Server IP:</label>
+        <input type="text" id="mqttServerIP" placeholder="192.168.0.21" value="192.168.0.21" />
+        <input type="hidden" id="mqttServer" value="" />
+    </div>  
+    <div>
+        <label for="mqttServerPort">MQTT Server Port:</label>
+        <input type="text" id="mqttServerPort" placeholder="1884" value="1884" />
+    </div>
+    <div>
+        <label for="mqttMessages">Messages MQTT reçus:</label>
+        <div id="mqttMessages"></div>
+    </div>
+    <div id="devices">
+        <!-- Les dispositifs seront générés dans le script JS -->
+    </div>
+    <input type="text" id="globalMessage" placeholder="Message global à envoyer" />
+  
+    <button onclick="connectForSend()">Envoyer le message à tous les TRAPS sélectionnés</button>
+
+    
+    <script>
+        let client; // Variable globale pour le client MQTT
+
+        function createDeviceInputs() {
+    const devicesDiv = document.getElementById('devices');
+    for (let i = 0; i < 6; i++) {
+        const deviceNumber = i + 1; // Start from TRAPS-01
+        const deviceNameValue = `TRAPS-${deviceNumber.toString().padStart(2, '0')}`; // Pads with 0 to ensure two digits
+        const deviceDiv = document.createElement('div');
+        deviceDiv.className = 'device';
+        deviceDiv.innerHTML = `
+            <input type="checkbox" class="send-check" id="device${i}">
+            <label for="device${i}">Device ${deviceNumber}: </label>
+            <input type="text" class="device-name" placeholder="Nom du device" value="${deviceNameValue}">
+            <input type="text" class="device-message" placeholder="Message pour device ${deviceNumber} ">
+            <div class="battery-info"></div> <!-- Ajout de cet élément pour afficher les informations de batterie -->
+            <button onclick="sendMessageToDevice(${i})">Envoyer</button>
+        `;
+        devicesDiv.appendChild(deviceDiv);
+    }
+}
+
+        
+        let isClientConnected = false; // Ajout de la variable d'état de la connexion
+
+
+    function handleIncomingMessage(topic, message) {
+    // Extraire le nom du dispositif du topic
+    console.log(`Reçu un message sur le topic: ${topic}, Message: ${message}`); // Afficher le message dans la console
+            const deviceName = topic.split('/')[1];
+            const deviceInputs = document.getElementsByClassName('device-name');
+            const deviceMessages = document.getElementsByClassName('device-message');
+            const batteryInfos = document.getElementsByClassName('battery-info');
+
+    for (let i = 0; i < deviceInputs.length; i++) {
+        if (deviceInputs[i].value === deviceName) {
+            if (message.startsWith('battery')) {
+                // Mettre à jour l'élément HTML pour afficher les informations de batterie
+                const batteryStatus = message.split('=')[1].trim();
+                batteryInfos[i].innerHTML = `État de la batterie : ${batteryStatus}`;
+                console.log(`Reçu l'état de la batterie de ${deviceName} : ${batteryStatus}`);
+            } else {
+                // Gérer les autres types de messages (par exemple, l'état de charge)
+                // Vous pouvez ajouter un traitement spécifique pour d'autres types de messages ici
+                deviceMessages[i].value = message;
+                console.log(`Reçu un message de ${deviceName} : ${message}`);
+            }
+
+            // Ajouter le message à la div pour afficher tous les messages MQTT
+           // const mqttMessagesDiv = document.getElementById('mqttMessages');
+            //mqttMessagesDiv.innerHTML += `<p>Topic: ${topic}, Message: ${message}</p>`;
+            const mqttMessagesDiv = document.getElementById('mqttMessages');
+            mqttMessagesDiv.innerText += `Topic: ${topic}, Message: ${message}\n`;
+            console.log('Reçu un message sur le topic:', topic, 'avec le message:', message);
+
+
+
+            break;
+        }
+    }
+}
+
+
+function connectForSend() {
+    // Vérifie si le client est déjà connecté avant de tenter de se reconnecter
+    if (!client || !isClientConnected) {
+        const serverIP = document.getElementById('mqttServerIP').value;
+        const port = document.getElementById('mqttServerPort').value;
+        const server = `ws://${serverIP}:${port}/mqtt`;
+        client = new Paho.MQTT.Client(server, "clientId-" + new Date().getTime());
+
+        client.connect({
+            onSuccess: () => {
+                console.log("Connected to MQTT server");
+                isClientConnected = true;
+
+    // Appeler ici la fonction pour envoyer les messages une fois la connexion établie
+            sendGlobalMessage(); // Ou une autre fonction d'envoi si nécessaire
+            },
+            onFailure: (error) => {
+                console.log("Could not connect to MQTT server", error);
+            },
+        });
+
+        client.onConnectionLost = responseObject => {
+            if (responseObject.errorCode !== 0) {
+                console.log("Connection lost:", responseObject.errorMessage);
+                isClientConnected = false; // Réinitialise l'état de la connexion
+            }
+        };
+
+        // Ajouter l'abonnement aux topics MQTT pour chaque dispositif
+        const deviceInputs = document.getElementsByClassName('device-name');
+        for (let i = 0; i < deviceInputs.length; i++) {
+            const deviceName = deviceInputs[i].value.trim();
+            const topic = `notifs/${deviceName}`;
+            client.subscribe(topic, { qos: 1 });
+        }
+    } else {
+        // Si déjà connecté, envoyer le message directement
+        sendGlobalMessage(); // Ou une autre fonction d'envoi si nécessaire
+    }
+}
+
+
+
+
+function sendMessageToDevice(index) {
+    // Vérifie si le client MQTT est déjà initialisé et connecté
+    if (!client || !isClientConnected) {
+        connect(() => sendToDeviceAfterConnect(index)); // Connecte et défini un callback pour l'envoi
+    } else {
+        // Si déjà connecté, envoie le message directement
+        sendToDeviceAfterConnect(index);
+    }
+}
+
+function connect(callback) {
+    const serverIP = document.getElementById('mqttServerIP').value;
+    const port = document.getElementById('mqttServerPort').value;
+    const server = `ws://${serverIP}:${port}/mqtt`;
+    client = new Paho.MQTT.Client(server, "clientId-" + new Date().getTime());
+
+    client.connect({
+        onSuccess: () => {
+            console.log("Connected to MQTT server");
+            isClientConnected = true;
+            if (callback) callback(); // Exécute le callback après la connexion réussie
+
+            // Ajouter l'abonnement aux topics MQTT pour chaque dispositif
+            const deviceInputs = document.getElementsByClassName('device-name');
+            for (let i = 0; i < deviceInputs.length; i++) {
+                const deviceName = deviceInputs[i].value.trim();
+                const topic = `notifs/${deviceName}`;
+                client.subscribe(topic);
+            }
+        },
+        onFailure: (error) => {
+            console.log("Could not connect to MQTT server", error);
+        },
+    });
+
+    client.onConnectionLost = responseObject => {
+        if (responseObject.errorCode !== 0) {
+            console.log("Connection lost:", responseObject.errorMessage);
+            isClientConnected = false; // Réinitialise le flag de connexion
+        }
+    };
+}
+
+
+function sendToDeviceAfterConnect(index) {
+    const nameInput = document.getElementsByClassName('device-name')[index];
+    const messageInput = document.getElementsByClassName('device-message')[index];
+    const name = nameInput.value.trim();
+    const message = messageInput.value.trim();
+
+    if (!name || !message) {
+        console.log("Le nom du dispositif et le message ne peuvent pas être vides.");
+        return;
+    }
+
+    const topic = `notifs/${name}`;
+    const mqttMessage = new Paho.MQTT.Message(message);
+    mqttMessage.destinationName = topic;
+    client.send(mqttMessage);
+    console.log(`Message envoyé au topic: ${topic} avec le message: ${message}`);
+}
+
+function sendGlobalMessage() {
+    if (!isClientConnected) {
+        alert("Client MQTT n'est pas connecté.");
+        return; // Sort de la fonction si le client n'est pas connecté
+    }
+
+    const globalMessage = document.getElementById('globalMessage').value.trim();
+    if (!globalMessage) {
+        console.log("Le message global ne peut pas être vide.");
+        return;
+    }
+
+    const checks = document.getElementsByClassName('send-check');
+    const names = document.getElementsByClassName('device-name');
+
+    for (let i = 0; i < checks.length; i++) {
+        if (checks[i].checked) {
+            const name = names[i].value.trim();
+            if (name) {
+                const topic = `notifs/${name}`;
+                const mqttMessage = new Paho.MQTT.Message(globalMessage);
+                mqttMessage.destinationName = topic;
+                client.send(mqttMessage);
+                console.log(`Message global envoyé au topic: ${topic}`);
+            }
+        }
+    }
+}
+
+
+        createDeviceInputs();
+    </script>
+</body>
+</html>

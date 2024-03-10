@@ -1,0 +1,78 @@
+/* styles.css */
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    padding: 20px;
+    background-color: #f0f0f0;
+}
+form {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+}
+label {
+    display: block;
+    margin: 10px 0 5px;
+}
+input[type=text], input[type=number], button {
+    width: auto;
+    padding: 10px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    border: 1px solid #ccc;
+}
+button {
+    background-color: #007bff;
+    color: white;
+    cursor: pointer;
+    border: none;
+}
+button:hover {
+    background-color: #0056b3;
+}
+.button-group {
+    display: flex;
+    justify-content: space-between;
+}
+.device-name {
+    font-weight: bold;
+    font-size: 1.15rem; /* Adjust the size as needed */
+}
+
+.device-name-off {
+    font-size: 1rem; /* Adjust the size as needed */
+    color: #ff0000;
+}
+
+.device-message {
+    display: flex;
+    align-items: center;
+    margin-top: 10px; /* Espace avant le message */
+
+}
+
+.device-message input[type="text"] {
+    margin-right: 15px; /* Espace avant le bouton */
+
+}
+
+
+.device-element{
+    display: flex;
+    /* align-items: center; */
+    gap: 10px; /* Espace entre les éléments d'un message */
+}
+
+
+
+img {
+    height: fit-content;
+}
+
+.icon{
+    /* width: 6vw; */
+    width: 50px;
+}

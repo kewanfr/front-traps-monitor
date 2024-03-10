@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQTT Messages</title>
+</head>
+<body>
+    <h1>Messages MQTT</h1>
+    <div id="mqttMessages">En attente de message...</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.2.8/mqtt.min.js"></script>
+    <script>
+        const brokerUrl = 'ws://192.168.0.21:1884';
+        const deviceName = 'TRAPS-06';
+        const batteryTopic = `battery/${deviceName}`;
+        const chargingTopic = `charging/${deviceName}`;
+        const client = mqtt.connect(brokerUrl);
+        let batteryStatus = 'Non disponible';
+        let chargingStatus = 'Non disponible';
+
+        client.subscribe(batteryTopic);
+        client.subscribe(chargingTopic);
+
+        client.on('message', function (receivedTopic, message) {
+            message = message.toString();
+            if (receivedTopic === batteryTopic) {
+                batteryStatus = `${message}%`;
+            } else if (receivedTopic === chargingTopic) {
+                chargingStatus = (message.toLowerCase() === 'true') ? 'en charge' : 'pas en charge';
+            }
+            updateMessage();
+        });
+
+        function updateMessage() {
+            document.getElementById('mqttMessages').innerText = `La batterie du ${deviceName} est à ${batteryStatus} et elle est actuellement ${chargingStatus}.`;
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQTT Messages</title>
+</head>
+<body>
+    <button onclick="openSettings()">
+        <img src="icones/icone_roue_crantee.png" alt="Paramètres"/>
+    </button>
+    <h1>Niveau de batterie TRAPS</h1>    
+    <div id="mqttMessages">En attente de message...</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.2.8/mqtt.min.js"></script>
+    <script>
+        function openSettings() {
+            window.location.href = 'settings.html'; // Redirection vers la page des paramètres
+        }
+
+        function connectAndSubscribe() {
+            const brokerUrl = `ws://${localStorage.getItem('mqttServerAddress')}:${localStorage.getItem('mqttServerPort')}`;
+            const deviceName = localStorage.getItem('mqttDeviceName');
+            const batteryTopic = `battery/${deviceName}`;
+            const chargingTopic = `charging/${deviceName}`;
+            const client = mqtt.connect(brokerUrl);
+            let batteryStatus = 'Non disponible';
+            let chargingStatus = 'Non disponible';
+
+            client.subscribe(batteryTopic);
+            client.subscribe(chargingTopic);
+
+            client.on('message', function (receivedTopic, message) {
+                message = message.toString();
+                if (receivedTopic === batteryTopic) {
+                    batteryStatus = `${message}%`;
+                } else if (receivedTopic === chargingTopic) {
+                    chargingStatus = (message.toLowerCase() === 'true') ? 'en charge' : 'pas en charge';
+                }
+                updateMessage(deviceName, batteryStatus, chargingStatus);
+            });
+        }
+
+        function updateMessage(deviceName, batteryStatus, chargingStatus) {
+            document.getElementById('mqttMessages').innerText = `La batterie du ${deviceName} est à ${batteryStatus} et elle est actuellement ${chargingStatus}.`;
+        }
+
+        // Lancer la connexion et l'abonnement au démarrage de la page
+        window.addEventListener('load', connectAndSubscribe);
+    </script>
+</body>
+</html>
