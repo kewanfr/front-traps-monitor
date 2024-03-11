@@ -1,0 +1,30 @@
+version: "3.8"
+services:
+  mosquitto:
+    image: eclipse-mosquitto
+    container_name: mqtt
+    restart: always
+    volumes:
+      - config:/mosquitto/config
+      - data:/mosquitto/data
+      - log:/mosquitto/log
+    ports:
+      - 1883:1883
+      - 1884:1884
+      - 9001:9001
+  
+  nginx:
+    image: nginx:1.11.10-alpine
+    ports:
+      - 3000:80
+  web:
+    build: .
+    ports:
+      - 9000:9000
+    volumes:
+      - .:/app
+volumes:
+  config:
+  data:
+  log:
+  nginx:
